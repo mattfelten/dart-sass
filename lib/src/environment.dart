@@ -5,13 +5,17 @@
 // DO NOT EDIT. This file was generated from async_environment.dart.
 // See tool/synchronize.dart for details.
 //
-// Checksum: 449ed8a8ad29fe107656a666e6e6005ef539b834
+// Checksum: 8d481ee6f918e715226df04d0b766ade6a515b2e
 //
 // ignore_for_file: unused_import
 
+import 'dart:collection';
+
 import 'package:source_span/source_span.dart';
 
+import 'ast/css.dart';
 import 'ast/node.dart';
+import 'module.dart';
 import 'callable.dart';
 import 'functions.dart';
 import 'value.dart';
@@ -401,5 +405,35 @@ class Environment {
         _mixinIndices.remove(name);
       }
     }
+  }
+
+  /// Returns a module that represents the top-level members defined in [this],
+  /// and that contains [css] as its CSS tree.
+  Module toModule(CssStylesheet css) => _EnvironmentModule(this, css);
+}
+
+/// A module that represents the top-level members defined in an [Environment].
+class _EnvironmentModule implements Module {
+  final Map<String, Value> variables;
+  final Map<String, AstNode> variableNodes;
+  final Map<String, Callable> functions;
+  final Map<String, Callable> mixins;
+  final CssStylesheet css;
+
+  /// The environment that defines this module's members.
+  final Environment _environment;
+
+  // TODO(nweiz): Use custom [UnmodifiableMapView]s that forbid access to
+  // private members.
+  _EnvironmentModule(this._environment, this.css)
+      : variables = UnmodifiableMapView(_environment._variables.first),
+        variableNodes = _environment._variableNodes == null
+            ? null
+            : UnmodifiableMapView(_environment._variableNodes.first),
+        functions = UnmodifiableMapView(_environment._functions.first),
+        mixins = UnmodifiableMapView(_environment._mixins.first);
+
+  void setVariable(String name, Value value, AstNode nodeWithSpan) {
+    _environment.setVariable(name, value, nodeWithSpan, global: true);
   }
 }
