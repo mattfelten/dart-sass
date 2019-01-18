@@ -164,7 +164,7 @@ abstract class StylesheetParser extends Parser {
     var name = variableName();
     if (scanner.scanChar($dot)) {
       namespace = name;
-      name = identifier();
+      name = _publicIdentifier();
     }
 
     if (plainCss) {
@@ -935,7 +935,7 @@ abstract class StylesheetParser extends Parser {
     var name = identifier();
     if (scanner.scanChar($dot)) {
       namespace = name;
-      name = identifier();
+      name = _publicIdentifier();
     }
 
     whitespace();
@@ -1130,7 +1130,7 @@ relase. For details, see http://bit.ly/moz-document.
 
     expectIdentifier("as");
     whitespace();
-    var namespace = scanner.scanChar($asterisk) ? null : identifier();
+    var namespace = scanner.scanChar($asterisk) ? null : _publicIdentifier();
     expectStatementSeparator("@use rule");
 
     return UseRule(url, namespace, scanner.spanFrom(start));
@@ -2162,7 +2162,7 @@ relase. For details, see http://bit.ly/moz-document.
     if (scanner.peekChar() == $dot && scanner.peekChar(1) != $dot) {
       scanner.readChar();
       namespace = name;
-      name = identifier();
+      name = _publicIdentifier();
     }
 
     if (plainCss) {
@@ -2285,8 +2285,8 @@ relase. For details, see http://bit.ly/moz-document.
         var namespace = identifier.asPlain;
         scanner.readChar();
         var beforeName = scanner.state;
-        var name =
-            Interpolation([this.identifier()], scanner.spanFrom(beforeName));
+        var name = Interpolation(
+            [this._publicIdentifier()], scanner.spanFrom(beforeName));
 
         if (namespace == null) {
           error("Interpolation isn't allowed in namespaces.", identifier.span);
@@ -3124,6 +3124,20 @@ relase. For details, see http://bit.ly/moz-document.
   }
 
   // ## Utilities
+
+  /// Like [identifier], but rejects identifiers that begin with `_` or `-`.
+  String _publicIdentifier() {
+    var start = scanner.state;
+    var result = identifier();
+
+    var first = result.codeUnitAt(0);
+    if (first == $dash || first == $underscore) {
+      error("Private members can't be accessed from outside their modules.",
+          scanner.spanFrom(start));
+    }
+
+    return result;
+  }
 
   // ## Abstract Methods
 
