@@ -41,7 +41,10 @@ class VariableDeclaration implements Statement {
   final FileSpan span;
 
   VariableDeclaration(this.name, this.expression, this.span,
-      {this.namespace, bool guarded = false, bool global = false, SilentComment comment})
+      {this.namespace,
+      bool guarded = false,
+      bool global = false,
+      SilentComment comment})
       : isGuarded = guarded,
         isGlobal = global,
         comment = comment;
@@ -58,7 +61,7 @@ class VariableDeclaration implements Statement {
       visitor.visitVariableDeclaration(this);
 
   String toString() {
-    var buffer = new StringBuffer("\$");
+    var buffer = StringBuffer("\$");
     if (namespace != null) buffer.write("$namespace.");
     buffer.write("$name: $expression;");
     return buffer.toString();

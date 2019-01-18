@@ -159,7 +159,13 @@ abstract class StylesheetParser extends Parser {
     var precedingComment = lastSilentComment;
     lastSilentComment = null;
     var start = scanner.state;
+
+    String namespace;
     var name = variableName();
+    if (scanner.scanChar($dot)) {
+      namespace = name;
+      name = identifier();
+    }
 
     if (plainCss) {
       error("Sass variables aren't allowed in plain CSS.",
@@ -180,6 +186,11 @@ abstract class StylesheetParser extends Parser {
       if (flag == 'default') {
         guarded = true;
       } else if (flag == 'global') {
+        if (namespace != null) {
+          error("!global isn't allowed for variables in other modules.",
+              scanner.spanFrom(flagStart));
+        }
+
         global = true;
       } else {
         error("Invalid flag name.", scanner.spanFrom(flagStart));
@@ -190,7 +201,10 @@ abstract class StylesheetParser extends Parser {
 
     expectStatementSeparator("variable declaration");
     return VariableDeclaration(name, value, scanner.spanFrom(start),
-        guarded: guarded, global: global, comment: precedingComment);
+        namespace: namespace,
+        guarded: guarded,
+        global: global,
+        comment: precedingComment);
   }
 
   /// Consumes a style rule.
@@ -917,7 +931,13 @@ abstract class StylesheetParser extends Parser {
   ///
   /// [start] should point before the `@`.
   IncludeRule _includeRule(LineScannerState start) {
+    String namespace;
     var name = identifier();
+    if (scanner.scanChar($dot)) {
+      namespace = name;
+      name = identifier();
+    }
+
     whitespace();
     var arguments = scanner.peekChar() == $lparen
         ? _argumentInvocation(mixin: true)
@@ -946,7 +966,7 @@ abstract class StylesheetParser extends Parser {
     }
 
     return IncludeRule(name, arguments, scanner.spanFrom(start),
-        content: content);
+        namespace: namespace, content: content);
   }
 
   /// Consumes a `@media` rule.
@@ -1098,8 +1118,14 @@ relase. For details, see http://bit.ly/moz-document.
   /// Consumes a `@use` rule.
   ///
   /// [start] should point before the `@`.
-  WarnRule _useRule(LineScannerState start) {
-    var url = string();
+  UseRule _useRule(LineScannerState start) {
+    var urlString = string();
+    Uri url;
+    try {
+      url = Uri.parse(urlString);
+    } on FormatException catch (innerError) {
+      error("Invalid URL: ${innerError.message}", scanner.spanFrom(start));
+    }
     whitespace();
 
     expectIdentifier("as");
@@ -2130,11 +2156,22 @@ relase. For details, see http://bit.ly/moz-document.
   /// Consumes a variable expression.
   VariableExpression _variable() {
     var start = scanner.state;
-    var name = variableName();
-    if (!plainCss) return VariableExpression(name, scanner.spanFrom(start));
 
-    error(
-        "Sass variables aren't allowed in plain CSS.", scanner.spanFrom(start));
+    String namespace;
+    var name = variableName();
+    if (scanner.peekChar() == $dot && scanner.peekChar(1) != $dot) {
+      scanner.readChar();
+      namespace = name;
+      name = identifier();
+    }
+
+    if (plainCss) {
+      error("Sass variables aren't allowed in plain CSS.",
+          scanner.spanFrom(start));
+    }
+
+    return VariableExpression(name, scanner.spanFrom(start),
+        namespace: namespace);
   }
 
   /// Consumes a selector expression.
@@ -2241,9 +2278,31 @@ relase. For details, see http://bit.ly/moz-document.
       if (specialFunction != null) return specialFunction;
     }
 
-    return scanner.peekChar() == $lparen
-        ? FunctionExpression(identifier, _argumentInvocation())
-        : StringExpression(identifier);
+    switch (scanner.peekChar()) {
+      case $dot:
+        if (scanner.peekChar(1) == $dot) return StringExpression(identifier);
+
+        var namespace = identifier.asPlain;
+        scanner.readChar();
+        var beforeName = scanner.state;
+        var name =
+            Interpolation([this.identifier()], scanner.spanFrom(beforeName));
+
+        if (namespace == null) {
+          error("Interpolation isn't allowed in namespaces.", identifier.span);
+        }
+
+        return FunctionExpression(
+            name, _argumentInvocation(), scanner.spanFrom(start),
+            namespace: namespace);
+
+      case $lparen:
+        return FunctionExpression(
+            identifier, _argumentInvocation(), scanner.spanFrom(start));
+
+      default:
+        return StringExpression(identifier);
+    }
   }
 
   /// If [name] is the name of a function with special syntax, consumes it.
@@ -2497,8 +2556,8 @@ relase. For details, see http://bit.ly/moz-document.
     var contents = _tryUrlContents(start);
     if (contents != null) return StringExpression(contents);
 
-    return FunctionExpression(
-        Interpolation(["url"], scanner.spanFrom(start)), _argumentInvocation());
+    return FunctionExpression(Interpolation(["url"], scanner.spanFrom(start)),
+        _argumentInvocation(), scanner.spanFrom(start));
   }
 
   /// Consumes tokens up to "{", "}", ";", or "!".

@@ -6,7 +6,6 @@ import 'package:source_span/source_span.dart';
 
 import '../../../visitor/interface/statement.dart';
 import '../expression/string.dart';
-import '../import.dart';
 import '../statement.dart';
 
 /// A `@use` rule.

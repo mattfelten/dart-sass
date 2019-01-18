@@ -4,7 +4,6 @@
 
 import 'package:source_span/source_span.dart';
 
-import '../../../utils.dart';
 import '../../../visitor/interface/expression.dart';
 import '../expression.dart';
 import '../argument_invocation.dart';
@@ -28,15 +27,15 @@ class FunctionExpression implements Expression, CallableInvocation {
   /// The arguments to pass to the function.
   final ArgumentInvocation arguments;
 
-  FileSpan get span => spanForList([name, arguments]);
+  final FileSpan span;
 
-  FunctionExpression(this.name, this.arguments, {this.namespace});
+  FunctionExpression(this.name, this.arguments, this.span, {this.namespace});
 
   T accept<T>(ExpressionVisitor<T> visitor) =>
       visitor.visitFunctionExpression(this);
 
   String toString() {
-    var buffer = new StringBuffer();
+    var buffer = StringBuffer();
     if (namespace != null) buffer.write("$namespace.");
     buffer.write("$name$arguments");
     return buffer.toString();

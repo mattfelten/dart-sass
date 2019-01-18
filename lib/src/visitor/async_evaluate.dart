@@ -289,7 +289,9 @@ class _EvaluateVisitor
             deprecation: true);
 
         var expression = FunctionExpression(
-            Interpolation([function.text], _callableNode.span), invocation);
+            Interpolation([function.text], _callableNode.span),
+            invocation,
+            _callableNode.span);
         return await expression.accept(this);
       }
 
@@ -1115,6 +1117,10 @@ class _EvaluateVisitor
         (await node.expression.accept(this)).withoutSlash(),
         _expressionNode(node.expression),
         global: node.isGlobal);
+    return null;
+  }
+
+  Future<Value> visitUseRule(UseRule node) async {
     return null;
   }
 

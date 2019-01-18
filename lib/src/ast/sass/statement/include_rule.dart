@@ -28,7 +28,8 @@ class IncludeRule implements Statement, CallableInvocation {
 
   final FileSpan span;
 
-  IncludeRule(this.name, this.arguments, this.span, {this.namespace, this.content});
+  IncludeRule(this.name, this.arguments, this.span,
+      {this.namespace, this.content});
 
   T accept<T>(StatementVisitor<T> visitor) => visitor.visitIncludeRule(this);
 
