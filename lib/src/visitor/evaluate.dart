@@ -5,7 +5,7 @@
 // DO NOT EDIT. This file was generated from async_evaluate.dart.
 // See tool/synchronize.dart for details.
 //
-// Checksum: 68fc07d0508b8f9617543e3ce679103c5d8c202d
+// Checksum: 69536ac0359a33ee441693252377820044663468
 //
 // ignore_for_file: unused_import
 
@@ -27,6 +27,7 @@ import '../ast/sass.dart';
 import '../ast/selector.dart';
 import '../environment.dart';
 import '../import_cache.dart';
+import '../module.dart';
 import '../callable.dart';
 import '../color_names.dart';
 import '../exception.dart';
@@ -115,6 +116,9 @@ class _EvaluateVisitor
   /// compiled to Node.js.
   final NodeImporter _nodeImporter;
 
+  /// All modules that have been loaded and evaluated so far.
+  final _modules = <Uri, Module>{};
+
   /// The logger to use to print warnings.
   final Logger _logger;
 
@@ -183,7 +187,10 @@ class _EvaluateVisitor
   ///
   /// These are added to the initial CSS import block by [visitStylesheet] after
   /// the stylesheet has been fully performed.
-  var _outOfOrderImports = <CssImport>[];
+  ///
+  /// This is `null` unless there are any out-of-order imports in the current
+  /// stylesheet.
+  List<CssImport> _outOfOrderImports;
 
   /// The set that will eventually populate the JS API's
   /// `result.stats.includedFiles` field.
@@ -266,7 +273,8 @@ class _EvaluateVisitor
 
       var callable = css
           ? PlainCssCallable(name.text)
-          : _environment.getFunction(name.text);
+          : _addExceptionSpan(
+              _callableNode, () => _environment.getFunction(name.text));
       if (callable != null) return SassFunction(callable);
 
       throw SassScriptException("Function not found: $name");
@@ -344,18 +352,22 @@ class _EvaluateVisitor
     _stylesheet = node;
     _root = CssStylesheet(node.span);
     _parent = _root;
+    _evaluateStylesheet(node);
+    _extender.finalize();
+    return null;
+  }
+
+  /// Evaluates [node] either as the entrypoint file or as a `@use`d module.
+  void _evaluateStylesheet(Stylesheet node) {
     for (var child in node.children) {
       child.accept(this);
     }
 
-    if (_outOfOrderImports.isNotEmpty) {
+    if (_outOfOrderImports != null) {
       _root.modifyChildren((children) {
         children.insertAll(_endOfImports, _outOfOrderImports);
       });
     }
-
-    _extender.finalize();
-    return null;
   }
 
   Value visitAtRootRule(AtRootRule node) {
@@ -746,18 +758,18 @@ class _EvaluateVisitor
 
   /// Adds the stylesheet imported by [import] to the current document.
   void _visitDynamicImport(DynamicImport import) {
-    var result = _loadImport(import);
+    var result = _loadStylesheet(import.url, import.span);
     var importer = result.item1;
     var stylesheet = result.item2;
 
     var url = stylesheet.span.sourceUrl;
     if (_activeImports.contains(url)) {
-      throw _exception("This file is already being imported.", import.span);
+      throw _exception("This file is already being loaded.", import.span);
     }
 
     _activeImports.add(url);
     _withStackFrame("@import", import, () {
-      _withEnvironment(_environment.closure(), () {
+      _withEnvironment(_environment.global(), () {
         var oldImporter = _importer;
         var oldStylesheet = _stylesheet;
         _importer = importer;
@@ -772,20 +784,20 @@ class _EvaluateVisitor
     _activeImports.remove(url);
   }
 
-  /// Loads the [Stylesheet] imported by [import], or throws a
+  /// Loads the [Stylesheet] identified by [url], or throws a
   /// [SassRuntimeException] if loading fails.
-  Tuple2<Importer, Stylesheet> _loadImport(DynamicImport import) {
+  Tuple2<Importer, Stylesheet> _loadStylesheet(String url, FileSpan span) {
     try {
       if (_nodeImporter != null) {
-        var stylesheet = _importLikeNode(import);
+        var stylesheet = _importLikeNode(url);
         if (stylesheet != null) return Tuple2(null, stylesheet);
       } else {
         var tuple = _importCache.import(
-            Uri.parse(import.url), _importer, _stylesheet.span?.sourceUrl);
+            Uri.parse(url), _importer, _stylesheet.span?.sourceUrl);
         if (tuple != null) return tuple;
       }
 
-      if (import.url.startsWith('package:')) {
+      if (url.startsWith('package:')) {
         // Special-case this error message, since it's tripped people up in the
         // past.
         throw "\"package:\" URLs aren't supported on this platform.";
@@ -794,7 +806,7 @@ class _EvaluateVisitor
       }
     } on SassException catch (error) {
       var frames = error.trace.frames.toList()
-        ..addAll(_stackTrace(import.span).frames);
+        ..addAll(_stackTrace(span).frames);
       throw SassRuntimeException(error.message, error.span, Trace(frames));
     } catch (error) {
       String message;
@@ -803,15 +815,15 @@ class _EvaluateVisitor
       } catch (_) {
         message = error.toString();
       }
-      throw _exception(message, import.span);
+      throw _exception(message, span);
     }
   }
 
   /// Imports a stylesheet using [_nodeImporter].
   ///
   /// Returns the [Stylesheet], or `null` if the import failed.
-  Stylesheet _importLikeNode(DynamicImport import) {
-    var result = _nodeImporter.load(import.url, _stylesheet.span?.sourceUrl);
+  Stylesheet _importLikeNode(String originalUrl) {
+    var result = _nodeImporter.load(originalUrl, _stylesheet.span?.sourceUrl);
     if (result == null) return null;
 
     var contents = result.item1;
@@ -847,14 +859,16 @@ class _EvaluateVisitor
       _root.addChild(node);
       _endOfImports++;
     } else {
+      _outOfOrderImports ??= [];
       _outOfOrderImports.add(node);
     }
     return null;
   }
 
   Value visitIncludeRule(IncludeRule node) {
-    var mixin =
-        _environment.getMixin(node.name) as UserDefinedCallable<Environment>;
+    var mixin = _addExceptionSpan(node,
+            () => _environment.getMixin(node.name, namespace: node.namespace))
+        as UserDefinedCallable<Environment>;
     if (mixin == null) {
       throw _exception("Undefined mixin.", node.span);
     }
@@ -1103,19 +1117,66 @@ class _EvaluateVisitor
 
   Value visitVariableDeclaration(VariableDeclaration node) {
     if (node.isGuarded) {
-      var value = _environment.getVariable(node.name);
+      var value = _addExceptionSpan(node,
+          () => _environment.getVariable(node.name, namespace: node.namespace));
       if (value != null && value != sassNull) return null;
     }
 
-    _environment.setVariable(
-        node.name,
-        node.expression.accept(this).withoutSlash(),
-        _expressionNode(node.expression),
-        global: node.isGlobal);
+    var value = node.expression.accept(this).withoutSlash();
+    _addExceptionSpan(node, () {
+      _environment.setVariable(
+          node.name, value, _expressionNode(node.expression),
+          namespace: node.namespace, global: node.isGlobal);
+    });
     return null;
   }
 
   Value visitUseRule(UseRule node) {
+    var result = _loadStylesheet(node.url.toString(), node.span);
+    var importer = result.item1;
+    var stylesheet = result.item2;
+
+    var url = stylesheet.span.sourceUrl;
+    if (_activeImports.contains(url)) {
+      throw _exception("This module is currently being loaded.", node.span);
+    }
+
+    var module = _modules.putIfAbsent(url, () {
+      var environment = Environment(sourceMap: _sourceMap);
+      var css = CssStylesheet(stylesheet.span);
+      _activeImports.add(url);
+      _withStackFrame("@use", node, () {
+        _withEnvironment(environment, () {
+          var oldImporter = _importer;
+          var oldStylesheet = _stylesheet;
+          var oldRoot = _root;
+          var oldParent = _parent;
+          var oldEndOfImports = _endOfImports;
+          var oldOutOfOrderImports = _outOfOrderImports;
+          _importer = importer;
+          _stylesheet = stylesheet;
+          _root = css;
+          _parent = css;
+          _endOfImports = 0;
+          _outOfOrderImports = null;
+
+          _evaluateStylesheet(stylesheet);
+
+          _importer = oldImporter;
+          _stylesheet = oldStylesheet;
+          _root = oldRoot;
+          _parent = oldParent;
+          _endOfImports = oldEndOfImports;
+          _outOfOrderImports = oldOutOfOrderImports;
+        });
+      });
+      _activeImports.remove(url);
+
+      return environment.toModule(css);
+    });
+
+    _environment.addModule(module, namespace: node.namespace);
+
     return null;
   }
 
@@ -1212,7 +1273,8 @@ class _EvaluateVisitor
   Value visitValueExpression(ValueExpression node) => node.value;
 
   Value visitVariableExpression(VariableExpression node) {
-    var result = _environment.getVariable(node.name);
+    var result = _addExceptionSpan(node,
+        () => _environment.getVariable(node.name, namespace: node.namespace));
     if (result != null) return result;
     throw _exception("Undefined variable.", node.span);
   }
@@ -1280,9 +1342,19 @@ class _EvaluateVisitor
 
   Value visitFunctionExpression(FunctionExpression node) {
     var plainName = node.name.asPlain;
-    var function =
-        (plainName == null ? null : _environment.getFunction(plainName)) ??
-            PlainCssCallable(_performInterpolation(node.name));
+    Callable function;
+    if (plainName != null) {
+      function = _addExceptionSpan(node,
+          () => _environment.getFunction(plainName, namespace: node.namespace));
+    }
+
+    if (function == null) {
+      if (node.namespace != null) {
+        throw _exception("Undefined function.", node.span);
+      }
+
+      function = PlainCssCallable(_performInterpolation(node.name));
+    }
 
     var oldInFunction = _inFunction;
     _inFunction = true;
@@ -1747,7 +1819,8 @@ class _EvaluateVisitor
   AstNode _expressionNode(Expression expression) {
     if (!_sourceMap) return null;
     if (expression is VariableExpression) {
-      return _environment.getVariableNode(expression.name);
+      return _environment.getVariableNode(expression.name,
+          namespace: expression.namespace);
     } else {
       return expression;
     }
