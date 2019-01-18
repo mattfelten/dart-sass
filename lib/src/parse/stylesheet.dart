@@ -32,6 +32,10 @@ import 'parser.dart';
 /// private, except where they have to be public for subclasses to refer to
 /// them.
 abstract class StylesheetParser extends Parser {
+  /// Whether we've consumed a rule other than `@charset`, `@forward`, or
+  /// `@use`.
+  var _isUseAllowed = true;
+
   /// Whether the parser is currently parsing the contents of a mixin
   /// declaration.
   var _inMixin = false;
@@ -142,6 +146,7 @@ abstract class StylesheetParser extends Parser {
         return _mixinRule(start);
 
       default:
+        _isUseAllowed = false;
         return _inStyleRule || _inUnknownAtRule || _inMixin || _inContentBlock
             ? _declarationOrStyleRule()
             : _styleRule();
@@ -445,10 +450,18 @@ abstract class StylesheetParser extends Parser {
     var name = interpolatedIdentifier();
     whitespace();
 
+    // We want to set [_isUseAllowed] to `false` *unless* we're parsing
+    // `@charset`, `@forward`, or `@use`. To avoid double-comparing the rule
+    // name, we always set it to `false` and then set it back to its previous
+    // value if we're parsing an allowed rule.
+    var wasUseAllowed = _isUseAllowed;
+    _isUseAllowed = false;
+
     switch (name.asPlain) {
       case "at-root":
         return _atRootRule(start);
       case "charset":
+        _isUseAllowed = wasUseAllowed;
         if (!root) _disallowedAtRule(start);
         string();
         return null;
@@ -484,6 +497,10 @@ abstract class StylesheetParser extends Parser {
         return _disallowedAtRule(start);
       case "supports":
         return supportsRule(start);
+      case "use":
+        _isUseAllowed = wasUseAllowed;
+        if (!root || !_isUseAllowed) _disallowedAtRule(start);
+        return _useRule(start);
       case "warn":
         return _warnRule(start);
       case "while":
@@ -1076,6 +1093,21 @@ relase. For details, see http://bit.ly/moz-document.
     whitespace();
     return SupportsRule(
         condition, children(_statement), scanner.spanFrom(start));
+  }
+
+  /// Consumes a `@use` rule.
+  ///
+  /// [start] should point before the `@`.
+  WarnRule _useRule(LineScannerState start) {
+    var url = string();
+    whitespace();
+
+    expectIdentifier("as");
+    whitespace();
+    var namespace = scanner.scanChar($asterisk) ? null : identifier();
+    expectStatementSeparator("@use rule");
+
+    return UseRule(url, namespace, scanner.spanFrom(start));
   }
 
   /// Consumes a `@warn` rule.

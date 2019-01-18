@@ -15,6 +15,10 @@ import '../interpolation.dart';
 ///
 /// This may be a plain CSS function or a Sass function.
 class FunctionExpression implements Expression, CallableInvocation {
+  /// The namespace of the function being invoked, or `null` if it's invoked
+  /// without a namespace.
+  final String namespace;
+
   /// The name of the function being invoked.
   ///
   /// If this is interpolated, the function will be interpreted as plain CSS,
@@ -26,10 +30,15 @@ class FunctionExpression implements Expression, CallableInvocation {
 
   FileSpan get span => spanForList([name, arguments]);
 
-  FunctionExpression(this.name, this.arguments);
+  FunctionExpression(this.name, this.arguments, {this.namespace});
 
   T accept<T>(ExpressionVisitor<T> visitor) =>
       visitor.visitFunctionExpression(this);
 
-  String toString() => "$name$arguments";
+  String toString() {
+    var buffer = new StringBuffer();
+    if (namespace != null) buffer.write("$namespace.");
+    buffer.write("$name$arguments");
+    return buffer.toString();
+  }
 }
