@@ -346,6 +346,7 @@ class _EvaluateVisitor
     _root = CssStylesheet(node.span);
     _parent = _root;
     await _evaluateStylesheet(node);
+    _addUpstreamCss();
     _extender.finalize();
     return null;
   }
@@ -361,6 +362,49 @@ class _EvaluateVisitor
         children.insertAll(_endOfImports, _outOfOrderImports);
       });
     }
+  }
+
+  /// The CSS of all modules transitively used by the current module to [_root].
+  void _addUpstreamCss() {
+    var seen = Set<AsyncModule>();
+    var imports = <CssNode>[];
+    var css = <CssNode>[];
+
+    void visitModule(AsyncModule module) {
+      if (!seen.add(module)) return;
+      for (var module in module.upstream) {
+        visitModule(module);
+      }
+
+      var statements = module.css.children;
+      var index = _indexAfterImports(statements);
+      imports.addAll(statements.getRange(0, index));
+      css.addAll(statements.getRange(index, statements.length));
+    }
+
+    for (var module in _environment.allModules) {
+      visitModule(module);
+    }
+
+    _root.modifyChildren((children) {
+      children.insertAll(0, imports);
+      children.insertAll(imports.length, css);
+    });
+  }
+
+  /// Returns the index of the first node in [statements] that comes after all
+  /// static imports.
+  int _indexAfterImports(List<CssNode> statements) {
+    var lastImport = 0;
+    for (var i = 0; i < statements.length; i++) {
+      var statement = statements[i];
+      if (statement is CssImport) {
+        lastImport = i;
+      } else if (statement is! CssComment) {
+        break;
+      }
+    }
+    return lastImport + 1;
   }
 
   Future<Value> visitAtRootRule(AtRootRule node) async {
