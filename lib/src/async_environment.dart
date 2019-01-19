@@ -9,9 +9,12 @@ import 'package:source_span/source_span.dart';
 
 import 'ast/css.dart';
 import 'ast/node.dart';
+import 'ast/sass.dart';
+import 'ast/selector.dart';
 import 'async_module.dart';
 import 'callable.dart';
 import 'exception.dart';
+import 'extend/extender.dart';
 import 'functions.dart';
 import 'value.dart';
 import 'utils.dart';
@@ -598,8 +601,10 @@ class AsyncEnvironment {
   }
 
   /// Returns a module that represents the top-level members defined in [this],
-  /// and that contains [css] as its CSS tree.
-  AsyncModule toModule(CssStylesheet css) => _EnvironmentModule(this, css);
+  /// and that contains [css] as its CSS tree with [extender] in charge of
+  /// updating its selectors if they're `@extend`ed after the fact.
+  AsyncModule toModule(CssStylesheet css, Extender extender) =>
+      _EnvironmentModule(this, css, extender);
 
   /// Returns the module with the given [namespace], or throws a
   /// [SassScriptException] if none exists.
@@ -651,9 +656,12 @@ class _EnvironmentModule implements AsyncModule {
   /// The environment that defines this module's members.
   final AsyncEnvironment _environment;
 
+  /// The extender that updates [css]'s selectors.
+  final Extender _extender;
+
   // TODO(nweiz): Use custom [UnmodifiableMapView]s that forbid access to
   // private members.
-  _EnvironmentModule(this._environment, this.css)
+  _EnvironmentModule(this._environment, this.css, this._extender)
       : upstream = _environment.allModules,
         variables = UnmodifiableMapView(_environment._variables.first),
         variableNodes = _environment._variableNodes == null
@@ -672,5 +680,13 @@ class _EnvironmentModule implements AsyncModule {
       _environment._variableNodes.first[name] = nodeWithSpan;
     }
     return;
+  }
+
+  void addExtension(
+      CssValue<SelectorList> extender, SimpleSelector target, ExtendRule extend,
+      [List<CssMediaQuery> mediaContext]) {
+    print("add extension $extender {${extend.span.text}} to $css");
+    _extender.addExtension(extender, target, extend, mediaContext);
+    print(css);
   }
 }

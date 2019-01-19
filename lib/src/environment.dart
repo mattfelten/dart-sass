@@ -5,7 +5,7 @@
 // DO NOT EDIT. This file was generated from async_environment.dart.
 // See tool/synchronize.dart for details.
 //
-// Checksum: 0b43726dff52d066fb2e8220c65603ef601674ab
+// Checksum: cf4005761caa0c0df3fde2c6143a22accd032bde
 //
 // ignore_for_file: unused_import
 
@@ -15,9 +15,12 @@ import 'package:source_span/source_span.dart';
 
 import 'ast/css.dart';
 import 'ast/node.dart';
+import 'ast/sass.dart';
+import 'ast/selector.dart';
 import 'module.dart';
 import 'callable.dart';
 import 'exception.dart';
+import 'extend/extender.dart';
 import 'functions.dart';
 import 'value.dart';
 import 'utils.dart';
@@ -602,8 +605,10 @@ class Environment {
   }
 
   /// Returns a module that represents the top-level members defined in [this],
-  /// and that contains [css] as its CSS tree.
-  Module toModule(CssStylesheet css) => _EnvironmentModule(this, css);
+  /// and that contains [css] as its CSS tree with [extender] in charge of
+  /// updating its selectors if they're `@extend`ed after the fact.
+  Module toModule(CssStylesheet css, Extender extender) =>
+      _EnvironmentModule(this, css, extender);
 
   /// Returns the module with the given [namespace], or throws a
   /// [SassScriptException] if none exists.
@@ -654,9 +659,12 @@ class _EnvironmentModule implements Module {
   /// The environment that defines this module's members.
   final Environment _environment;
 
+  /// The extender that updates [css]'s selectors.
+  final Extender _extender;
+
   // TODO(nweiz): Use custom [UnmodifiableMapView]s that forbid access to
   // private members.
-  _EnvironmentModule(this._environment, this.css)
+  _EnvironmentModule(this._environment, this.css, this._extender)
       : upstream = _environment.allModules,
         variables = UnmodifiableMapView(_environment._variables.first),
         variableNodes = _environment._variableNodes == null
@@ -675,5 +683,11 @@ class _EnvironmentModule implements Module {
       _environment._variableNodes.first[name] = nodeWithSpan;
     }
     return;
+  }
+
+  void addExtension(
+      CssValue<SelectorList> extender, SimpleSelector target, ExtendRule extend,
+      [List<CssMediaQuery> mediaContext]) {
+    _extender.addExtension(extender, target, extend, mediaContext);
   }
 }

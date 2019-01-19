@@ -5,7 +5,7 @@
 // DO NOT EDIT. This file was generated from async_evaluate.dart.
 // See tool/synchronize.dart for details.
 //
-// Checksum: 34f4eb4fbb30f0308d0b254d67d29679f726d2b9
+// Checksum: 30aceead896c36c5733199d1b4af14945590c81a
 //
 // ignore_for_file: unused_import
 
@@ -201,8 +201,8 @@ class _EvaluateVisitor
 
   final _activeImports = Set<Uri>();
 
-  /// The extender that handles extensions for this perform run.
-  final _extender = Extender();
+  /// The extender that handles extensions for this module's CSS.
+  var _extender = Extender();
 
   /// The dynamic call stack representing function invocations, mixin
   /// invocations, and imports surrounding the current context.
@@ -354,7 +354,6 @@ class _EvaluateVisitor
     _parent = _root;
     _evaluateStylesheet(node);
     _addUpstreamCss();
-    _extender.finalize();
     return null;
   }
 
@@ -369,29 +368,21 @@ class _EvaluateVisitor
         children.insertAll(_endOfImports, _outOfOrderImports);
       });
     }
+
+    _extender.finalize();
   }
 
   /// The CSS of all modules transitively used by the current module to [_root].
   void _addUpstreamCss() {
-    var seen = Set<Module>();
     var imports = <CssNode>[];
     var css = <CssNode>[];
 
-    void visitModule(Module module) {
-      if (!seen.add(module)) return;
-      for (var module in module.upstream) {
-        visitModule(module);
-      }
-
+    _forEachModule((module) {
       var statements = module.css.children;
       var index = _indexAfterImports(statements);
       imports.addAll(statements.getRange(0, index));
       css.addAll(statements.getRange(index, statements.length));
-    }
-
-    for (var module in _environment.allModules) {
-      visitModule(module);
-    }
+    });
 
     _root.modifyChildren((children) {
       children.insertAll(0, imports);
@@ -681,6 +672,11 @@ class _EvaluateVisitor
 
       _extender.addExtension(
           _styleRule.selector, compound.components.first, node, _mediaQueries);
+
+      _forEachModule((module) {
+        module.addExtension(_styleRule.selector, compound.components.first,
+            node, _mediaQueries);
+      });
     }
 
     return null;
@@ -1197,12 +1193,14 @@ class _EvaluateVisitor
           var oldParent = _parent;
           var oldEndOfImports = _endOfImports;
           var oldOutOfOrderImports = _outOfOrderImports;
+          var oldExtender = _extender;
           _importer = importer;
           _stylesheet = stylesheet;
           _root = css;
           _parent = css;
           _endOfImports = 0;
           _outOfOrderImports = null;
+          _extender = Extender();
 
           _evaluateStylesheet(stylesheet);
 
@@ -1212,11 +1210,12 @@ class _EvaluateVisitor
           _parent = oldParent;
           _endOfImports = oldEndOfImports;
           _outOfOrderImports = oldOutOfOrderImports;
+          _extender = oldExtender;
         });
       });
       _activeImports.remove(url);
 
-      return environment.toModule(css);
+      return environment.toModule(css, _extender);
     });
 
     _environment.addModule(module, namespace: node.namespace);
@@ -2010,6 +2009,27 @@ class _EvaluateVisitor
       return callback();
     } on SassScriptException catch (error) {
       throw _exception(error.message, nodeWithSpan.span);
+    }
+  }
+
+  /// Runs [callback] once for each module transitively used by [this], in
+  /// reverse topological order.
+  void _forEachModule(void callback(Module module)) {
+    if (_environment.allModules.isEmpty) return;
+
+    var seen = Set<Module>();
+
+    void visitModule(Module module) {
+      if (!seen.add(module)) return;
+      for (var module in module.upstream) {
+        visitModule(module);
+      }
+
+      callback(module);
+    }
+
+    for (var module in _environment.allModules) {
+      visitModule(module);
     }
   }
 }

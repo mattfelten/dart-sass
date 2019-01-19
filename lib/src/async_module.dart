@@ -6,6 +6,8 @@ import 'package:source_span/source_span.dart';
 
 import 'ast/css.dart';
 import 'ast/node.dart';
+import 'ast/sass.dart';
+import 'ast/selector.dart';
 import 'callable.dart';
 import 'value.dart';
 
@@ -54,4 +56,19 @@ abstract class AsyncModule {
   /// Throws a [SassScriptException] if this module doesn't define a variable
   /// named [name].
   void setVariable(String name, Value value, AstNode nodeWithSpan);
+
+  // TODO(nweiz): Is there a way we can do this without destructively modifying
+  // [css]?
+  /// Extends [css]'s style rules.
+  ///
+  /// The [extender] is the selector for the style rule in which the extension
+  /// is defined, and [target] is the selector passed to `@extend`. The [extend]
+  /// provides the extend span and indicates whether the extension is optional.
+  ///
+  /// The [mediaContext] defines the media query context in which the extension
+  /// is defined. It can only extend selectors within the same context. A `null`
+  /// context indicates no media queries.
+  void addExtension(
+      CssValue<SelectorList> extender, SimpleSelector target, ExtendRule extend,
+      [List<CssMediaQuery> mediaContext]);
 }

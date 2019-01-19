@@ -5,7 +5,7 @@
 // DO NOT EDIT. This file was generated from async_module.dart.
 // See tool/synchronize.dart for details.
 //
-// Checksum: 759037174212e69cd0d9a7ebf55f6ee9f66072e8
+// Checksum: 5e5cd4d0582422d37d4a707244ab1fb874a3c859
 //
 // ignore_for_file: unused_import
 
@@ -13,6 +13,8 @@ import 'package:source_span/source_span.dart';
 
 import 'ast/css.dart';
 import 'ast/node.dart';
+import 'ast/sass.dart';
+import 'ast/selector.dart';
 import 'callable.dart';
 import 'value.dart';
 
@@ -61,4 +63,17 @@ abstract class Module {
   /// Throws a [SassScriptException] if this module doesn't define a variable
   /// named [name].
   void setVariable(String name, Value value, AstNode nodeWithSpan);
+
+  /// Extends [css]'s style rules.
+  ///
+  /// The [extender] is the selector for the style rule in which the extension
+  /// is defined, and [target] is the selector passed to `@extend`. The [extend]
+  /// provides the extend span and indicates whether the extension is optional.
+  ///
+  /// The [mediaContext] defines the media query context in which the extension
+  /// is defined. It can only extend selectors within the same context. A `null`
+  /// context indicates no media queries.
+  void addExtension(
+      CssValue<SelectorList> extender, SimpleSelector target, ExtendRule extend,
+      [List<CssMediaQuery> mediaContext]);
 }
